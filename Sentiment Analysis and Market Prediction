@@ -1,0 +1,80 @@
+import tweepy
+import pandas as pd
+from textblob import TextBlob
+import yfinance as yf
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import mean_squared_error
+
+# Add your Twitter API access keys here
+consumer_key = 'YOUR_CONSUMER_KEY'
+consumer_secret = 'YOUR_CONSUMER_SECRET'
+access_token = 'YOUR_ACCESS_TOKEN'
+access_token_secret = 'YOUR_ACCESS_TOKEN_SECRET'
+
+# Twitter API authentication
+auth = tweepy.OAuth1UserHandler(consumer_key, consumer_secret, access_token, access_token_secret)
+api = tweepy.API(auth, wait_on_rate_limit=True)
+
+# Data Collection Function
+def get_tweets(query, count=1000):
+    tweets = tweepy.Cursor(api.search_tweets, q=query, lang='en', tweet_mode='extended').items(count)
+    tweet_list = [[tweet.created_at, tweet.full_text] for tweet in tweets]
+    return pd.DataFrame(tweet_list, columns=['Date', 'Tweet'])
+
+# Collect tweets about AAPL
+tweets_df = get_tweets('AAPL', count=1000)
+tweets_df['Date'] = pd.to_datetime(tweets_df['Date']).dt.date
+
+# Sentiment Analysis
+def analyze_sentiment(tweet):
+    analysis = TextBlob(tweet)
+    return analysis.sentiment.polarity
+
+tweets_df['Sentiment'] = tweets_df['Tweet'].apply(analyze_sentiment)
+
+# Collect AAPL stock price data
+stock_data = yf.download('AAPL', start='2020-01-01', end='2023-01-01')
+stock_data['Date'] = stock_data.index.date
+
+# Calculate average sentiment by date
+avg_sentiment = tweets_df.groupby('Date')['Sentiment'].mean().reset_index()
+
+# Merge data
+merged_data = pd.merge(stock_data, avg_sentiment, on='Date', how='inner')
+
+# Visualize sentiment and price data
+plt.figure(figsize=(14, 7))
+plt.plot(merged_data['Date'], merged_data['Close'], label='Closing Price')
+plt.plot(merged_data['Date'], merged_data['Sentiment'], label='Average Sentiment', alpha=0.7)
+plt.legend()
+plt.title('AAPL Price and Sentiment Analysis')
+plt.show()
+
+# Define input and output variables
+X = merged_data[['Sentiment']]
+y = merged_data['Close']
+
+# Split data into training and testing sets
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Linear Regression Model
+model = LinearRegression()
+model.fit(X_train, y_train)
+
+# Predictions
+y_pred = model.predict(X_test)
+
+# Evaluate model performance
+mse = mean_squared_error(y_test, y_pred)
+print(f'Mean Squared Error: {mse}')
+
+# Visualize predicted vs actual prices
+plt.figure(figsize=(14, 7))
+plt.plot(y_test.values, label='Actual Price')
+plt.plot(y_pred, label='Predicted Price')
+plt.legend()
+plt.title('Actual vs Predicted Prices')
+plt.show()
